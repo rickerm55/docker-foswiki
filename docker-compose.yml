@@ -2,7 +2,6 @@ services:
 
   foswiki:
     image: timlegge/docker-foswiki:latest
-#    image: my-foswiki-image:latest
     restart: always
     depends_on: 
       solr:
@@ -24,6 +23,12 @@ services:
 
   solr:
     image: solr:5
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8983/solr/admin/cores?action=STATUS"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
     restart: always
     networks:
       - backend
