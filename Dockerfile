@@ -146,6 +146,10 @@ RUN rm -rf /var/cache/apk/* && \
 COPY nginx.default.conf /etc/nginx/http.d/default.conf
 COPY docker-entrypoint.sh docker-entrypoint.sh
 COPY iwatch.xml /etc/iwatch.xml
+COPY htmldoc-wrapper.sh /usr/local/bin/htmldoc-wrapper.sh
+RUN chmod +x /usr/local/bin/htmldoc-wrapper.sh && \
+    cd /var/www/foswiki && \
+    tools/configure -save -set {Extensions}{GenPDFAddOn}{htmldocCmd}='/usr/local/bin/htmldoc-wrapper.sh'
 
 EXPOSE 80
 
