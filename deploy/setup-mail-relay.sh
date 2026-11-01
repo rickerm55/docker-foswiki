@@ -4,8 +4,9 @@
 # Prompts for a Google app password; it is stored only in /etc/postfix/sasl_passwd*.
 set -eu
 
-# The real Google login; stores@machs.org is only an alias and can't authenticate.
-ACCOUNT=rick@machs.org
+# Must be a real Google login, not an alias. A low-use account limits what a
+# leaked app password can reach.
+ACCOUNT=rickerm@gmail.com
 RELAY='[smtp.gmail.com]:587'
 PASSWD_FILE=/etc/postfix/sasl_passwd
 HERE=$(dirname "$(readlink -f "$0")")
