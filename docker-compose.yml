@@ -3,7 +3,7 @@ services:
   foswiki:
     # Built locally from this repo's Dockerfile (upstream image isn't rebuilt).
     # Rebuild every month or two for security fixes: see README-local-build.md.
-    # Previous: timlegge/docker-foswiki:latest (kept on disk for rollback)
+    # Previous: none (the timlegge image was removed 2026-11-26)
     image: foswiki-local:2026-11-25b
     restart: always
     labels:

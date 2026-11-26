@@ -11,46 +11,53 @@ nginx/OpenSSL advisory.
 
 ## Rebuild
 
+`deploy/rebuild.sh` runs each stage and prints the next command when it's done.
+No sudo needed.
+
 ```bash
 cd ~/docker-foswiki
-TAG=$(date +%F)
-
-# 1. Snapshot the wiki data (pages, config, plugins) right before the change,
-#    so a rollback doesn't depend on last night's backup.
-docker run --rm -v foswiki_foswiki_www:/src:ro -v ~/backups/foswiki:/dst alpine:3.22 \
-  tar czf /dst/foswiki_www-$TAG.tgz -C /src .
-
-# 2. Build (about 10–15 min: CPAN compiles plus ~60 plugin downloads)
-docker build --pull --no-cache -t foswiki-local:$TAG .
-
-# 3. Test it on a COPY of the data, on local-only ports
-docker volume create foswiki_test_www
-docker run --rm -v foswiki_test_www:/dst -v ~/backups/foswiki:/src:ro alpine:3.22 \
-  tar xzf /src/foswiki_www-$TAG.tgz -C /dst
-docker run -d --name foswiki-test -p 127.0.0.1:18443:443 -v foswiki_test_www:/var/www/foswiki \
-  -v $PWD/https/nginx.default.conf:/etc/nginx/http.d/default.conf:ro \
-  -v $PWD/https/docker-foswiki.crt:/etc/nginx/docker-foswiki.crt:ro \
-  -v $PWD/https/docker-foswiki.key:/etc/nginx/docker-foswiki.key:ro foswiki-local:$TAG
-sleep 20
-for p in /Machs/WebHome /Main/WikiUsers /bin/login/Main/WebHome; do
-  curl -sk -L --connect-to wiki.machs.org:443:127.0.0.1:18443 -o /dev/null \
-    -w "%{http_code} %{url_effective}\n" "https://wiki.machs.org$p"; done
-docker exec foswiki-test tail -20 /var/www/foswiki/working/logs/error.log
-# (Solr "No such file" lines in `docker logs foswiki-test` are expected: no Solr in the test.)
-docker rm -f foswiki-test && docker volume rm foswiki_test_www
-
-# 4. Switch: set `image: foswiki-local:$TAG` in docker-compose.yml, then
-docker compose up -d foswiki
+deploy/rebuild.sh build          # ~15 min: snapshot the wiki volume, build foswiki-local:<date>
+deploy/rebuild.sh test <tag>     # ~5 min: run the new image on a COPY of the wiki, check it
+deploy/rebuild.sh switch <tag>   # make it live (seconds of downtime), check, list manual steps
+deploy/rebuild.sh prune          # later: remove old images and snapshots (asks first)
 ```
 
-`--connect-to` matters: the site redirects to `https://wiki.machs.org/...`, and
-without it curl follows the redirect to the *live* site and the test proves nothing.
+What each stage does:
+
+- **build:** snapshots `foswiki_foswiki_www` to `~/backups/foswiki/foswiki_www-<tag>-prebuild.tgz`,
+  then runs `docker build --pull --no-cache`. The log goes to
+  `~/.cache/foswiki-rebuild/build-<tag>.log`. If the date tag already exists, it adds
+  `b`, `c`, and so on. It finishes with a smoke test that loads the Perl modules
+  that broke before (CGI::Session, Crypt::SysRandom, and others).
+- **test:** copies the live wiki volume and runs the new image on
+  `127.0.0.1:18443`, attached to the live Solr. It checks:
+  - four pages, the login page and an attachment download
+  - search, including the `source` facet that broke under Solr 5
+  - the 259-page `FullRecipeBookTopical` PDF
+  - new entries in Foswiki's `error.log`
+
+  Then it removes the test container and volume.
+- **switch:** records the current image on the `# Previous:` line in
+  `docker-compose.yml`, switches, runs the same checks against the live site plus
+  `deploy/front-end-check.sh`, then lists the manual checks and the commit command.
+  The manual checks are logging in, editing and searching, uploading, and an Arcane
+  rescan.
+- **check:** runs the same checks against the live site at any time.
+
+The checks use `curl --connect-to`, because the site redirects to
+`https://wiki.machs.org/...`. A plain request would be answered by the live site,
+and the test would prove nothing.
 
 ## Rollback
 
-Point `image:` back at the previous tag (keep the last one or two images) and
-`docker compose up -d foswiki`. If the data itself is damaged, restore the tarball
-from step 1 into `foswiki_foswiki_www`.
+```bash
+deploy/rebuild.sh rollback
+```
+
+This swaps back to the image on the `# Previous:` line. Running it again swaps
+forward. Keep the previous image on disk until the new one has run for a while;
+`prune` keeps both. If the wiki data itself is damaged, restore the snapshot from
+`build` into `foswiki_foswiki_www`.
 
 ## Known gotchas
 
