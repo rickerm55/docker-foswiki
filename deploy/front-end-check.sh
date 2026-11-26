@@ -14,13 +14,13 @@ tls=$(echo | timeout 10 openssl s_client -connect "$HOST:443" -servername "$HOST
       | awk '/^New, /{print $2; exit}' | tr -d ,)
 
 if [ "$front" = apache ]; then
-    echo "Public:    via Apache (router 443 -> 443)   HTTP $code, $tls"
+    echo "Public:    via Apache   HTTP $code, $tls"
 else
-    echo "Public:    direct to container (router 443 -> 8443)   HTTP $code, $tls"
+    echo "Public:    NOT via Apache (check the router's 443 forward)   HTTP $code, $tls"
 fi
 
 a=$(curl -s -m 10 --resolve "$HOST:443:127.0.0.1" -o /dev/null -w '%{http_code}' "$URL")
 c=$(curl -s -m 10 -k --connect-to "$HOST:443:127.0.0.1:8443" -o /dev/null -w '%{http_code}' "$URL")
 echo "Apache:    local port 443 -> HTTP $a"
 echo "Container: local port 8443 -> HTTP $c"
-[ "$code" = 200 ] && [ "$a" = 200 ] && [ "$c" = 200 ]
+[ "$front" = apache ] && [ "$code" = 200 ] && [ "$a" = 200 ] && [ "$c" = 200 ]

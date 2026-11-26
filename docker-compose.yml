@@ -14,9 +14,11 @@ services:
     networks:
       - frontend
       - backend
+    # Loopback only: host Apache is the public front end and proxies to
+    # 127.0.0.1:8443 (deploy/FRONT-END.md). Remove "127.0.0.1:" to expose again.
     ports:
-      - "8765:80"
-      - "8443:443"
+      - "127.0.0.1:8765:80"
+      - "127.0.0.1:8443:443"
     volumes:
       - solr_logs:/opt/solr/server/logs:z
       - solr_configsets:/opt/solr/server/solr/configsets:z

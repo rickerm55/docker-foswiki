@@ -1,7 +1,7 @@
 #!/bin/sh
 # Install deploy/apache-site.conf: Apache serves port 80 (challenges + redirect)
 # and port 443 (TLS, proxied to the foswiki container on 127.0.0.1:8443).
-# Doesn't change where the router sends traffic; see deploy/FRONT-END.md.
+# Also turns PHP off and uses the event MPM. See deploy/FRONT-END.md.
 # Safe to rerun after editing apache-site.conf.
 # Run with: sudo deploy/apache-setup.sh
 set -eu
@@ -21,10 +21,28 @@ echo "== Enabling modules: $MODS"
 # shellcheck disable=SC2086
 a2enmod -q $MODS
 
+# Nothing on kube uses PHP. Turning it off lets Apache use the event MPM
+# (mod_php requires prefork) and shrinks what the internet can reach.
+PHP_MODS=$(ls /etc/apache2/mods-enabled/ 2>/dev/null | sed -n 's/^\(php[0-9.]*\)\.load$/\1/p')
+PREFORK=0; [ -e /etc/apache2/mods-enabled/mpm_prefork.load ] && PREFORK=1
+if [ -n "$PHP_MODS" ] || [ "$PREFORK" = 1 ]; then
+    echo "== Disabling PHP ($PHP_MODS) and switching to the event MPM"
+    # shellcheck disable=SC2086
+    [ -n "$PHP_MODS" ] && a2dismod -q $PHP_MODS
+    [ "$PREFORK" = 1 ] && a2dismod -q mpm_prefork
+    a2enmod -q mpm_event
+fi
+
 restore() {
     cp -p "$BACKUP" "$SITE"
+    if [ "$PREFORK" = 1 ]; then
+        a2dismod -q mpm_event || true
+        a2enmod -q mpm_prefork || true
+    fi
+    # shellcheck disable=SC2086
+    [ -n "$PHP_MODS" ] && { a2enmod -q $PHP_MODS || true; }
     systemctl restart apache2 || true
-    echo "Restored the previous site config (modules left enabled; they're harmless)." >&2
+    echo "Restored the previous site config, MPM and PHP (new modules left enabled; harmless)." >&2
     exit 1
 }
 
@@ -51,14 +69,20 @@ RES="--resolve wiki.machs.org:443:127.0.0.1"
 check "port 443 serves the wiki with a valid cert" 200 \
     "$(curl -s $RES -o /dev/null -w '%{http_code}' https://wiki.machs.org/Machs/WebHome)"
 # shellcheck disable=SC2086
+check "HSTS header sent" yes \
+    "$(curl -s $RES -D - -o /dev/null https://wiki.machs.org/Machs/WebHome | grep -qi '^strict-transport-security:' && echo yes || echo no)"
+check "event MPM in use" event \
+    "$(apache2ctl -V 2>/dev/null | awk -F': *' '/Server MPM/{print tolower($2)}')"
+check "PHP module off" none \
+    "$(apache2ctl -M 2>/dev/null | grep -q php && echo loaded || echo none)"
+# shellcheck disable=SC2086
 check "port 443 response comes via Apache" apache \
     "$(curl -s $RES -D - -o /dev/null https://wiki.machs.org/Machs/WebHome | tr -d '\r' | awk -F': ' 'tolower($1)=="x-front-end"{print $2}')"
 
 if [ "$fail" = 1 ]; then
-    echo "A check failed. Public traffic is unaffected unless the router points 443 at Apache." >&2
-    echo "To undo: sudo cp -p $BACKUP $SITE && sudo systemctl restart apache2" >&2
+    echo "A check failed. Apache is the public front end, so check the site now (deploy/front-end-check.sh)." >&2
+    echo "To undo the site config: sudo cp -p $BACKUP $SITE && sudo systemctl restart apache2" >&2
     exit 1
 fi
-echo "== Done. Apache is ready; public traffic goes wherever the router points 443."
-echo "   Check which: deploy/front-end-check.sh    Switch: see deploy/FRONT-END.md"
+echo "== Done. Check the public site: deploy/front-end-check.sh"
 echo "   To undo: sudo cp -p $BACKUP $SITE && sudo systemctl restart apache2"

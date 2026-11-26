@@ -13,7 +13,7 @@ If you receive an alert email, go to [Troubleshooting](#troubleshooting).
    - reloads nginx inside the `foswiki` container, without restarting it
 3. **Monitor:** a daily cron job at 08:00 checks the certificates actually being served and sends email only if there is a problem.
 
-Public port 443 reaches the wiki either through Apache on the host (router 443 → 443) or straight to the `foswiki` container on port 8443 (router 443 → 8443). Both serve the same certificate; the router setting decides which one visitors see. See [FRONT-END.md](FRONT-END.md). Port 80 always goes to Apache, which serves the challenge files and redirects everything else to `https://`.
+Visitors reach Apache on the host, which serves the certificate and passes requests to the `foswiki` container on `127.0.0.1:8443`. The container serves the same certificate on that internal hop. Port 80 also goes to Apache, which serves the challenge files and redirects everything else to `https://`. See [FRONT-END.md](FRONT-END.md).
 
 Let's Encrypt no longer sends expiry warning emails, so the daily check is the only warning of a failed renewal.
 
@@ -77,11 +77,11 @@ If more than 30 days remain, certbot will skip this as not yet due.
 
 ### Alert: container certificate differs from the public one
 
-The certificate served publicly (by Apache or the container, depending on the router) differs from the container's, usually because the container wasn't running during deployment. Run the deploy hook by hand.
+The certificate Apache serves publicly differs from the container's, usually because the container wasn't running during deployment. Run the deploy hook by hand.
 
 ### Alert: could not read a certificate
 
-Either the public front end or the container (port 8443) isn't responding. Check both, and which path is live, with:
+Either Apache (port 443) or the container (port 8443) isn't responding. Check both with:
 
 ```bash
 deploy/front-end-check.sh
@@ -145,4 +145,4 @@ The login must be a real account, not an alias. Gmail rejects the stores@machs.o
    0 8 * * * /home/bq/docker-foswiki/deploy/cert-check.sh >/dev/null 2>&1
    ```
 
-The scripts assume the repository is at `/home/bq/docker-foswiki` and that the router forwards public 80 to port 80, and public 443 to port 443 (Apache) or 8443 (container). Adjust them if the new server differs.
+The scripts assume the repository is at `/home/bq/docker-foswiki` and that the router forwards public ports 80 and 443 to the same ports on the server. Adjust them if the new server differs.
