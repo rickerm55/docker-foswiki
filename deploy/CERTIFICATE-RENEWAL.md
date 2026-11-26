@@ -13,7 +13,7 @@ If you receive an alert email, go to [Troubleshooting](#troubleshooting).
    - reloads nginx inside the `foswiki` container, without restarting it
 3. **Monitor:** a daily cron job at 08:00 checks the certificates actually being served and sends email only if there is a problem.
 
-Traffic flows from the internet to Apache on port 443, then to the `foswiki` container on port 8443. Both use the same certificate.
+Public port 443 reaches the wiki either through Apache on the host (router 443 → 443) or straight to the `foswiki` container on port 8443 (router 443 → 8443). Both serve the same certificate; the router setting decides which one visitors see. See [FRONT-END.md](FRONT-END.md). Port 80 always goes to Apache, which serves the challenge files and redirects everything else to `https://`.
 
 Let's Encrypt no longer sends expiry warning emails, so the daily check is the only warning of a failed renewal.
 
@@ -27,7 +27,7 @@ Let's Encrypt no longer sends expiry warning emails, so the daily check is the o
 | Installed deploy hook | `/etc/letsencrypt/renewal-hooks/deploy/foswiki-cert-deploy` |
 | Deploy hook source | `~/docker-foswiki/deploy/cert-deploy-hook.sh` |
 | Daily check | `~/docker-foswiki/deploy/cert-check.sh`, in the `bq` crontab |
-| Apache site config | `/etc/apache2/sites-available/000-default.conf` |
+| Apache site config | `/etc/apache2/sites-available/000-default.conf`, installed from `deploy/apache-site.conf` |
 | Container's certificate copies | `~/docker-foswiki/https/` |
 | Mail relay credentials | `/etc/postfix/sasl_passwd` |
 
@@ -65,7 +65,7 @@ Certbot should have renewed about 9 days earlier, so renewal or deployment has f
 2. **If certbot's date is later,** renewal worked but deployment failed. Run the deploy hook by hand (see below).
 3. **If the dates match,** renewal itself is failing. Run the dry run above and read the error. Then check `sudo less /var/log/letsencrypt/letsencrypt.log`.
 
-The most likely cause is that Let's Encrypt can't reach `http://wiki.machs.org/.well-known/acme-challenge/` from the internet. Check DNS, router port forwarding for port 80, and that Apache is running.
+The most likely cause is that Let's Encrypt can't reach `http://wiki.machs.org/.well-known/acme-challenge/` from the internet. Check DNS, router port forwarding for port 80, and that Apache is running. `curl -I http://wiki.machs.org/.well-known/acme-challenge/x` should return 404, not a 301 redirect.
 
 Once the dry run passes, renew immediately with:
 
@@ -77,13 +77,14 @@ If more than 30 days remain, certbot will skip this as not yet due.
 
 ### Alert: container certificate differs from the public one
 
-Apache and the container are on different certificates, usually because the container wasn't running during deployment. Run the deploy hook by hand.
+The certificate served publicly (by Apache or the container, depending on the router) differs from the container's, usually because the container wasn't running during deployment. Run the deploy hook by hand.
 
 ### Alert: could not read a certificate
 
-Either Apache (port 443) or the container (port 8443) isn't responding. Check them with:
+Either the public front end or the container (port 8443) isn't responding. Check both, and which path is live, with:
 
 ```bash
+deploy/front-end-check.sh
 systemctl status apache2
 docker compose ps
 ```
@@ -119,7 +120,7 @@ The login must be a real account, not an alias. Gmail rejects the stores@machs.o
     /etc/letsencrypt/renewal-hooks/deploy/foswiki-cert-deploy
   ```
 - **Overwrite files in `https/` in place.** `docker-compose.yml` mounts these as individual files. Replacing one with `mv` leaves the running container on the old file until it is recreated.
-- **Keep `.well-known/acme-challenge/` reachable over plain HTTP on port 80.** Any future redirect or proxy rule on port 80 must exempt this path, or renewal will fail.
+- **Keep `.well-known/acme-challenge/` reachable over plain HTTP on port 80.** The redirect in `deploy/apache-site.conf` exempts it; any future rule on port 80 must too, or renewal will fail. Edit `deploy/apache-site.conf` and rerun `sudo deploy/apache-setup.sh`, rather than editing the installed copy.
 - **Don't run `certbot --manual`.** Certificates issued that way can't renew automatically.
 - **Don't commit `https/` or key material.** The repository is public, and `https/` is in `.gitignore`.
 
@@ -131,7 +132,7 @@ The login must be a real account, not an alias. Gmail rejects the stores@machs.o
    ```bash
    sudo certbot certonly --webroot -w /var/www/html -d wiki.machs.org
    ```
-4. Install the hook and point Apache at the certificate. This stops without changing anything if the certificate or a dry-run renewal fails:
+4. Install the hook and set up Apache. This stops without changing anything if the certificate or a dry-run renewal fails:
    ```bash
    sudo deploy/install.sh
    ```
@@ -144,4 +145,4 @@ The login must be a real account, not an alias. Gmail rejects the stores@machs.o
    0 8 * * * /home/bq/docker-foswiki/deploy/cert-check.sh >/dev/null 2>&1
    ```
 
-The scripts assume the repository is at `/home/bq/docker-foswiki` and that the Apache site config already has `SSLCertificateFile` and `SSLCertificateKeyFile` lines. Adjust them if the new server differs.
+The scripts assume the repository is at `/home/bq/docker-foswiki` and that the router forwards public 80 to port 80, and public 443 to port 443 (Apache) or 8443 (container). Adjust them if the new server differs.

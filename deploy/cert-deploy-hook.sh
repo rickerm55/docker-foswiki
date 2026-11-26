@@ -14,8 +14,9 @@ esac
 
 status=0
 
-# Apache is the public endpoint, so it goes first and must update even if the
-# container steps fail.
+# Both serve the cert: Apache on 443 (public when the router points 443 at it)
+# and the container on 8443 (public otherwise, and Apache's upstream). See
+# deploy/FRONT-END.md. Apache reads /etc/letsencrypt directly; a reload is enough.
 systemctl reload apache2 || { echo "apache2 reload failed" >&2; status=1; }
 
 # Overwrite in place: docker-compose.yml bind-mounts single files, so mv or an
