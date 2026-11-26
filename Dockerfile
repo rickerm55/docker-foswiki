@@ -46,7 +46,7 @@ RUN rm -rf /var/cache/apk/* && \
         perl-xml-tidy perl-xml-writer perl-xml-xpath perl-yaml perl-yaml-tiny \
         perl-file-mmagic perl-file-mmagic-xs perl-net-saml2 imagemagick-perlmagick graphviz \
         odt2txt antiword lynx poppler-utils perl-email-address-xs perl-chi \
-        perl-xml-sig iwatch perl-http-anyua perl-webservice-slack-webapi perl-dev  --update-cache && \
+        perl-xml-sig perl-crypt-sysrandom iwatch perl-http-anyua perl-webservice-slack-webapi perl-dev  --update-cache && \
         # perl-libapreq2 -- Apache2::Request - Here for completeness but we use nginx \
     rm -fr /var/cache/apk/APKINDEX.* && \
     perl -MCPAN -e 'install BerkeleyDB,DB_File' && \
@@ -146,6 +146,10 @@ RUN rm -rf /var/cache/apk/* && \
 COPY nginx.default.conf /etc/nginx/http.d/default.conf
 COPY docker-entrypoint.sh docker-entrypoint.sh
 COPY iwatch.xml /etc/iwatch.xml
+COPY htmldoc-wrapper.sh /usr/local/bin/htmldoc-wrapper.sh
+RUN chmod +x /usr/local/bin/htmldoc-wrapper.sh && \
+    cd /var/www/foswiki && \
+    tools/configure -save -set {Extensions}{GenPDFAddOn}{htmldocCmd}='/usr/local/bin/htmldoc-wrapper.sh'
 
 EXPOSE 80
 

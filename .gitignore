@@ -6,4 +6,6 @@ certwork/
 CLAUDE.md
 .claude/
 https/
+*.pem
+*.key
 
